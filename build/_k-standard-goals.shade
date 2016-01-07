@@ -3,9 +3,10 @@ use namespace="System"
 use namespace="System.Globalization"
 use namespace="System.IO"
 use namespace="System.Linq"
-use import="Files"
 use import="BuildEnv"
 use import="Environment"
+use import="Files"
+use import="Json"
 use-teamcity
 
 default BASE_DIR='${Directory.GetCurrentDirectory()}'
@@ -13,7 +14,6 @@ default TARGET_DIR='${Path.Combine(BASE_DIR, "artifacts")}'
 default BUILD_DIR='${Path.Combine(TARGET_DIR, "build")}'
 default TEST_DIR='${Path.Combine(TARGET_DIR, "test")}'
 default Configuration='${E("Configuration")}'
-default Quiet='${ false }'
 default PACKAGELIST_JSON_FILENAME = 'NuGetPackageVerifier.json'
 default DNX_TOOLS_FEED = 'https://www.myget.org/F/dnxtools/api/v3/index.json'
 default NUGET_FEED = 'https://api.nuget.org/v3/index.json'
@@ -43,12 +43,12 @@ default NUGET_FEED = 'https://api.nuget.org/v3/index.json'
 #restore-npm-modules
   -// Find all dirs that contain a package.json file
   var npmDirs = '${GetDirectoriesContaining(Directory.GetCurrentDirectory(), "package.json")}'
-  npm npmCommand='install ${E("npm_install_options")}' each='var npmDir in npmDirs'
+  npm npmCommand='install ${E("KOREBUILD_NPM_INSTALL_OPTIONS")}' each='var npmDir in npmDirs'
 
 #restore-bower-components
   -// Find all dirs that contain a bower.json file
   var bowerDirs = '${GetDirectoriesContaining(Directory.GetCurrentDirectory(), "bower.json")}'
-  bower each='var bowerDir in bowerDirs' bowerCommand='install ${E("bower_install_options")}'
+  bower each='var bowerDir in bowerDirs' bowerCommand='install ${E("KOREBUILD_BOWER_INSTALL_OPTIONS")}'
 
 #run-grunt .restore-npm-modules .restore-bower-components target='initialize'
   -// Find all dirs that contain a gruntfile.js file
@@ -151,7 +151,7 @@ default NUGET_FEED = 'https://api.nuget.org/v3/index.json'
       }
   }
 
-#native-compile target='compile' if='!IsMono && Directory.Exists(Path.Combine(BASE_DIR, "src"))'
+#native-compile target='compile' if='!IsLinux && Directory.Exists(Path.Combine(BASE_DIR, "src"))'
   var programFilesX86 = '${Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)}'
   var nativeProjects ='${Files.Include(Path.Combine(BASE_DIR, "src", "**", "*.vcxproj"))}'
 
@@ -202,7 +202,7 @@ default NUGET_FEED = 'https://api.nuget.org/v3/index.json'
     }
   }
 
-#nuget-install target='install' description='Install NuGet packages to local repo'
+#nuget-install target='install' if='Directory.Exists("src")' description='Install NuGet packages to local repo'
   kpm-publish sourcePackagesDir='${BUILD_DIR}' targetPackagesDir='${E("PACKAGES_PUBLISH_DIR")}'
   nuget-resilient-publish sourcePackagesDir='${BUILD_DIR}' nugetFeed='${E("NUGET_PUBLISH_FEED")}' if='!string.IsNullOrEmpty(E("NUGET_PUBLISH_FEED"))'
 
@@ -259,36 +259,58 @@ default NUGET_FEED = 'https://api.nuget.org/v3/index.json'
 
 #--quiet
   @{
-    E("NUGET3_pack_options"," --quiet");
-    E("NUGET3_build_options"," --quiet");
-    E("NUGET3_restore_options"," --quiet");
-    E("bower_install_options","--quiet");
-    E("npm_install_options","--quiet");
+    AddToE("KOREBUILD_BOWER_INSTALL_OPTIONS", "--quiet");
+    AddToE("KOREBUILD_DNU_BUILD_OPTIONS", "--quiet");
+    AddToE("KOREBUILD_DNU_PACK_OPTIONS", "--quiet");
+    AddToE("KOREBUILD_DNU_RESTORE_OPTIONS", "--quiet");
+    AddToE("KOREBUILD_NPM_INSTALL_OPTIONS", "--quiet");
     Quiet = true;
   }
 
 #--parallel
-   @{
+  @{
     E("KOREBUILD_PARALLEL", "1");
-   }
+  }
+
+#--test-dnxcore
+  @{
+    E("KOREBUILD_TEST_DNXCORE", "1");
+  }
 
 #stylecop if='Directory.Exists("src")'
   stylecop-setup
   stylecop-run each='var projectFile in Files.Include("src/**/project.json")'
 
 functions @{
+    private static bool Quiet { get; set; }
+
     string E(string key) { return Environment.GetEnvironmentVariable(key); }
     void E(string key, string value) { Environment.SetEnvironmentVariable(key, value); }
+    void AddToE(string key, string append)
+    {
+      var original = E(key);
+      if (string.IsNullOrEmpty(original))
+      {
+        E(key, append);
+      }
+      else
+      {
+        E(key, original + " " + append);
+      }
+    }
+
     IEnumerable<string> GetDirectoriesContaining(string path, string searchPattern)
     {
       var sep = Path.DirectorySeparatorChar;
       // Don't include directories that are children of a node_modules or bower_components directory
       return Directory.GetFiles(path, searchPattern, SearchOption.AllDirectories)
                       .Where(p => p.IndexOf(sep + "node_modules" + sep) < 0 &&
-                                  p.IndexOf(sep + "bower_components" + sep) < 0)
+                                  p.IndexOf(sep + "bower_components" + sep) < 0 &&
+                                  p.IndexOf(sep + "wwwroot" + sep + "lib" + sep) < 0)
                       .Select(p => Path.GetDirectoryName(p))
                       .Distinct();
     }
+
     bool TestCommand(string program, string commandline)
     {
       // Tests whether a given command succeeds at the command line.
@@ -347,6 +369,15 @@ functions @{
 
 macro name='Exec' program='string' commandline='string'
     exec
+
+macro name='Dnu' command='string'
+    dnu
+
+macro name='Dnx' command='string' dnxDir='string'
+    k
+
+macro name='Dnx' command='string' dnxDir='string' dnvmUse='string'
+    k
 
 macro name="UpdateResx" resxFile='string'
     k-generate-resx

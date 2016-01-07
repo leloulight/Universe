@@ -1,4 +1,3 @@
-
 use namespace="System"
 
 functions
@@ -7,7 +6,7 @@ functions
     {
         var start = new DateTime(2015, 1, 1);
         var now = DateTime.UtcNow;
-            
+
         string version = "0";
         // If the computer date is set before the start date, then the version is 0
         if (now >= start)
@@ -21,17 +20,17 @@ functions
 
     string BuildNumber
     {
-        get 
+        get
         {
             return "t" + DateTime.UtcNow.ToString("yyMMddHHmmss");
         }
     }
-    
+
     bool IsBuildV2
     {
-        get 
-        { 
-            return Environment.GetEnvironmentVariable("KOREBUILD_BUILD_V2") == "1"; 
+        get
+        {
+            return Environment.GetEnvironmentVariable("KOREBUILD_BUILD_V2") == "1";
         }
     }
   }
